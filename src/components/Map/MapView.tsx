@@ -8,6 +8,57 @@ import { formatYear } from "@/lib/geo";
 
 mapboxgl.accessToken = "pk.eyJ1Ijoic3B5ZGVyd2ViIiwiYSI6ImNtbjQxMW95bDE1b2EycXNnYXpuNGhmeXIifQ.R9g4X7IFuv8WbrQbg2kccw";
 
+/** Bounds snapshot used for caching / skip-fetch logic */
+interface FetchedRegion {
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+    yearStart: number;
+    yearEnd: number;
+    zoom: number;
+}
+
+/**
+ * Check whether we can skip fetching.
+ * Skip only when the new viewport is geographically contained in the
+ * previously fetched area AND the zoom level hasn't increased by more
+ * than 0.5 (zooming in needs denser data).
+ */
+function canSkipFetch(current: FetchedRegion, last: FetchedRegion): boolean {
+    // If user zoomed in significantly, always refetch for higher-density data
+    if (current.zoom - last.zoom > 0.5) return false;
+
+    return (
+        current.north <= last.north &&
+        current.south >= last.south &&
+        current.east <= last.east &&
+        current.west >= last.west &&
+        current.yearStart >= last.yearStart &&
+        current.yearEnd <= last.yearEnd
+    );
+}
+
+/** Expand bounds by a relative buffer (e.g. 0.2 = 20%) */
+function bufferBounds(
+    north: number,
+    south: number,
+    east: number,
+    west: number,
+    factor: number
+) {
+    const latSpan = north - south;
+    const lngSpan = east - west;
+    const latBuf = latSpan * factor;
+    const lngBuf = lngSpan * factor;
+    return {
+        north: Math.min(north + latBuf, 90),
+        south: Math.max(south - latBuf, -90),
+        east: Math.min(east + lngBuf, 180),
+        west: Math.max(west - lngBuf, -180),
+    };
+}
+
 interface MapViewProps {
     yearStart: number;
     yearEnd: number;
@@ -31,6 +82,12 @@ export default function MapView({
     const fetchIdRef = useRef(0);
     const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
     const [loading, setLoading] = useState(false);
+
+    // AbortController per server so each server's in-flight request can be cancelled independently
+    const abortControllers = useRef<Record<string, AbortController>>({});
+
+    // Track the last-fetched region per server for skip-fetch logic
+    const lastFetchedRegion = useRef<Record<string, FetchedRegion>>({});
 
     // Initialize Mapbox map once
     useEffect(() => {
@@ -63,23 +120,50 @@ export default function MapView({
         };
     }, []);
 
-    // Build query params from current map state
-    const getParams = useCallback(() => {
+    // Build query params from current map state, with optional buffered bounds
+    const getParams = useCallback((useBuffer: boolean = true) => {
         if (!mapRef.current) return null;
         const bounds = mapRef.current.getBounds();
         if (!bounds) return null;
 
+        const zoom = mapRef.current.getZoom();
         const midYear = Math.round((yearStart + yearEnd) / 2);
         const yearRange = Math.round((yearEnd - yearStart) / 2);
 
-        return new URLSearchParams({
-            north: bounds.getNorth().toString(),
-            south: bounds.getSouth().toString(),
-            east: bounds.getEast().toString(),
-            west: bounds.getWest().toString(),
-            year: midYear.toString(),
-            yearRange: yearRange.toString(),
-        });
+        let north = bounds.getNorth();
+        let south = bounds.getSouth();
+        let east = bounds.getEast();
+        let west = bounds.getWest();
+
+        // Expand bounds by 20% buffer so small pans reuse cached data
+        if (useBuffer) {
+            const buffered = bufferBounds(north, south, east, west, 0.2);
+            north = buffered.north;
+            south = buffered.south;
+            east = buffered.east;
+            west = buffered.west;
+        }
+
+        return {
+            params: new URLSearchParams({
+                north: north.toString(),
+                south: south.toString(),
+                east: east.toString(),
+                west: west.toString(),
+                year: midYear.toString(),
+                yearRange: yearRange.toString(),
+                zoom: Math.round(zoom).toString(),
+            }),
+            region: {
+                north,
+                south,
+                east,
+                west,
+                yearStart,
+                yearEnd,
+                zoom,
+            } as FetchedRegion,
+        };
     }, [yearStart, yearEnd]);
 
     // Clear markers for a specific server
@@ -93,21 +177,52 @@ export default function MapView({
     }, []);
 
     // Fetch events from a single server & plot them
-    const fetchFromServer = useCallback(async (server: DataServer) => {
+    const fetchFromServer = useCallback(async (server: DataServer, force: boolean = false) => {
         if (!mapRef.current || !server.enabled) return;
 
-        const params = getParams();
-        if (!params) return;
+        const result = getParams();
+        if (!result) return;
+
+        const { params, region } = result;
+
+        // Skip-fetch: if the current viewport is inside the last-fetched region
+        // AND zoom hasn't increased significantly, skip the fetch
+        if (!force) {
+            const lastRegion = lastFetchedRegion.current[server.id];
+            if (lastRegion) {
+                const rawBounds = mapRef.current.getBounds();
+                const currentZoom = mapRef.current.getZoom();
+                if (rawBounds) {
+                    const currentRegion: FetchedRegion = {
+                        north: rawBounds.getNorth(),
+                        south: rawBounds.getSouth(),
+                        east: rawBounds.getEast(),
+                        west: rawBounds.getWest(),
+                        yearStart,
+                        yearEnd,
+                        zoom: currentZoom,
+                    };
+                    if (canSkipFetch(currentRegion, lastRegion)) {
+                        return; // Still within previously fetched area at similar zoom — skip
+                    }
+                }
+            }
+        }
+
+        // Abort any previous in-flight request for this server
+        if (abortControllers.current[server.id]) {
+            abortControllers.current[server.id].abort();
+        }
+        const controller = new AbortController();
+        abortControllers.current[server.id] = controller;
 
         const currentFetchId = ++fetchIdRef.current;
 
         // Determine the fetch URL
         let fetchUrl: string;
         if (server.builtin) {
-            // Built-in servers use their URL directly (local API routes)
             fetchUrl = `${server.url}?${params}`;
         } else {
-            // External servers go through the CORS proxy
             params.set("target", server.url);
             fetchUrl = `/api/server-proxy?${params}`;
         }
@@ -115,12 +230,23 @@ export default function MapView({
         try {
             if (server.id === "local") setLoading(true);
 
-            const res = await fetch(fetchUrl);
-            if (!res.ok) throw new Error(`Server ${server.name} returned ${res.status}`);
+            const res = await fetch(fetchUrl, { signal: controller.signal });
+            if (!res.ok) {
+                // For non-local servers, fail silently (e.g. Wikidata timeouts are expected)
+                if (server.id !== "local") {
+                    console.warn(`${server.name}: returned ${res.status}, skipping`);
+                    if (server.id === "local") setLoading(false);
+                    return;
+                }
+                throw new Error(`Server ${server.name} returned ${res.status}`);
+            }
             const data = await res.json();
 
             // Stale check
             if (!mapRef.current) return;
+
+            // Save the fetched region for skip-fetch logic
+            lastFetchedRegion.current[server.id] = region;
 
             // Clear old markers from this server
             clearServerMarkers(server.id);
@@ -140,7 +266,6 @@ export default function MapView({
                 el.className = `marker-pin marker-server-${server.id}`;
 
                 if (server.id === "wikidata") {
-                    // Wikipedia-style circular pin
                     el.innerHTML = `
                         <div class="flex items-center justify-center w-6 h-6 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.2)] font-serif text-[11px] font-bold border-2 border-[#191919] transition-transform hover:scale-110"
                              style="background-color:${server.color};color:#202122;">
@@ -148,7 +273,6 @@ export default function MapView({
                         </div>
                     `;
                 } else if (server.id === "local") {
-                    // Classic teardrop pin
                     const isPrivate = event.visibility === "private";
                     el.classList.add(isPrivate ? "marker-private" : "marker-public");
                     el.innerHTML = `
@@ -158,7 +282,6 @@ export default function MapView({
                         </svg>
                     `;
                 } else {
-                    // Custom server marker — colored circle with icon
                     el.innerHTML = `
                         <div class="flex items-center justify-center w-7 h-7 rounded-full shadow-lg text-[11px] font-bold border-2 border-[#191919] transition-transform hover:scale-110"
                              style="background-color:${server.color};color:#fff;">
@@ -173,7 +296,6 @@ export default function MapView({
                     onEventClick(event);
                 });
 
-                // Popup for non-wiki markers
                 let marker: mapboxgl.Marker;
                 if (server.id !== "wikidata") {
                     const popupHTML = `
@@ -207,42 +329,43 @@ export default function MapView({
             });
 
             if (server.id === "local") setLoading(false);
-        } catch (error) {
+        } catch (error: any) {
+            // Don't log AbortError — it's expected when we cancel stale requests
+            if (error?.name === "AbortError") return;
             console.error(`${server.name} fetch error:`, error);
             if (server.id === "local") setLoading(false);
         }
     }, [yearStart, yearEnd, getParams, clearServerMarkers, onEventClick]);
 
     // Trigger fetches for all enabled servers
-    const fetchAllServers = useCallback(() => {
+    const fetchAllServers = useCallback((force: boolean = false) => {
         // Clear all timers
         Object.values(debounceTimers.current).forEach(clearTimeout);
         debounceTimers.current = {};
 
         servers.forEach((server) => {
             if (!server.enabled) {
-                // If server is disabled, clear its markers
                 clearServerMarkers(server.id);
                 return;
             }
 
             debounceTimers.current[server.id] = setTimeout(
-                () => fetchFromServer(server),
+                () => fetchFromServer(server, force),
                 server.debounceMs
             );
         });
     }, [servers, fetchFromServer, clearServerMarkers]);
 
-    // Initial load and dependency triggers
+    // Initial load and dependency triggers — force fetch (bypass skip-fetch)
     useEffect(() => {
         if (mapRef.current && mapRef.current.isStyleLoaded()) {
-            fetchAllServers();
+            fetchAllServers(true);
         } else if (mapRef.current) {
-            mapRef.current.once("load", fetchAllServers);
+            mapRef.current.once("load", () => fetchAllServers(true));
         }
     }, [yearStart, yearEnd, refreshKey, fetchAllServers]);
 
-    // Move bounds listener
+    // Move bounds listener — uses skip-fetch logic (not forced)
     useEffect(() => {
         if (!mapRef.current) return;
         const map = mapRef.current;
@@ -251,7 +374,7 @@ export default function MapView({
 
         const onMoveEnd = () => {
             clearTimeout(moveDebounce);
-            moveDebounce = setTimeout(fetchAllServers, 100);
+            moveDebounce = setTimeout(() => fetchAllServers(false), 100);
         };
 
         map.on("moveend", onMoveEnd);

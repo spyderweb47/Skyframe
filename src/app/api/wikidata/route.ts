@@ -10,11 +10,19 @@ export async function GET(request: NextRequest) {
     const south = parseFloat(searchParams.get("south") || "-90");
     const east = parseFloat(searchParams.get("east") || "180");
     const west = parseFloat(searchParams.get("west") || "-180");
+    const zoom = parseFloat(searchParams.get("zoom") || "3");
+
+    // Zoom-adaptive SPARQL LIMIT
+    const sparqlLimit = zoom <= 4 ? 80 : zoom <= 7 ? 150 : 300;
 
     let sparqlQuery = "";
+    let useBoundedQuery = false;
 
-    // If the map is zoomed out globally, don't use the bounding box filter to avoid timeouts.
-    if (north - south > 100) {
+    // If the map is zoomed out broadly, skip bounding box filter to avoid SPARQL timeouts.
+    // The buffered bounds make the span larger, so use a lower threshold.
+    const isGlobalView = north - south > 80;
+
+    if (isGlobalView) {
         sparqlQuery = `
         SELECT ?event ?eventLabel ?date ?lat ?lon ?article WHERE {
           {
@@ -26,7 +34,7 @@ export async function GET(request: NextRequest) {
               ?node wikibase:geoLatitude ?lat.
               ?node wikibase:geoLongitude ?lon.
             }
-            LIMIT 150
+            LIMIT ${sparqlLimit}
           }
           OPTIONAL {
             ?article schema:about ?event.
@@ -36,7 +44,7 @@ export async function GET(request: NextRequest) {
         }
         `;
     } else {
-        // Detailed bounded map search
+        useBoundedQuery = true;
         sparqlQuery = `
         SELECT ?event ?eventLabel ?date ?lat ?lon ?article WHERE {
           {
@@ -49,7 +57,7 @@ export async function GET(request: NextRequest) {
               ?node wikibase:geoLongitude ?lon.
               FILTER(?lat >= ${south} && ?lat <= ${north} && ?lon >= ${west} && ?lon <= ${east})
             }
-            LIMIT 250
+            LIMIT ${sparqlLimit + 100}
           }
           OPTIONAL {
             ?article schema:about ?event.
@@ -60,20 +68,57 @@ export async function GET(request: NextRequest) {
         `;
     }
 
-    try {
-        const url = "https://query.wikidata.org/sparql?query=" + encodeURIComponent(sparqlQuery) + "&format=json";
-        const response = await fetch(url, {
+    // Helper to run a SPARQL query
+    async function runQuery(query: string): Promise<Response> {
+        const url = "https://query.wikidata.org/sparql?query=" + encodeURIComponent(query) + "&format=json";
+        return fetch(url, {
             headers: {
                 "User-Agent": "SkyFrame/1.0 (Contact: admin@skyframe.local)",
                 "Accept": "application/sparql-results+json"
             },
-            next: { revalidate: 3600 }, // Cache for 1 hour
-            signal: AbortSignal.timeout(8000) // Fallback timeout so it doesn't hang
+            next: { revalidate: 3600 },
+            signal: AbortSignal.timeout(20000)
         });
+    }
+
+    try {
+        let response = await runQuery(sparqlQuery);
+
+        // If bounded query failed, fall back to a simpler global query
+        if (!response.ok && useBoundedQuery) {
+            console.warn(`Wikidata bounded query failed (${response.status}), falling back to global query`);
+            const fallbackQuery = `
+            SELECT ?event ?eventLabel ?date ?lat ?lon ?article WHERE {
+              {
+                SELECT ?event ?date ?lat ?lon WHERE {
+                  ?event wdt:P31/wdt:P279* wd:Q1190554.
+                  ?event wdt:P585 ?date.
+                  FILTER(YEAR(?date) >= ${yearStart} && YEAR(?date) <= ${yearEnd})
+                  ?event p:P625/psv:P625 ?node.
+                  ?node wikibase:geoLatitude ?lat.
+                  ?node wikibase:geoLongitude ?lon.
+                }
+                LIMIT ${sparqlLimit}
+              }
+              OPTIONAL {
+                ?article schema:about ?event.
+                ?article schema:isPartOf <https://en.wikipedia.org/>.
+              }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            `;
+            try {
+                response = await runQuery(fallbackQuery);
+            } catch {
+                // Fallback also failed — return empty
+                console.warn("Wikidata fallback query also failed, returning empty events");
+                return NextResponse.json({ events: [] });
+            }
+        }
 
         if (!response.ok) {
-            console.error("Wikidata error:", response.status, await response.text());
-            return NextResponse.json({ error: "Failed to fetch from Wikidata" }, { status: 500 });
+            console.warn("Wikidata query returned", response.status, "— returning empty events");
+            return NextResponse.json({ events: [] });
         }
 
         const data = await response.json();
@@ -94,7 +139,8 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ events });
 
     } catch (e: any) {
-        console.error("SPARQL Parse Error:", e);
-        return NextResponse.json({ error: e.message }, { status: 500 });
+        // Timeout or network error — return empty events gracefully
+        console.warn("Wikidata query error:", e.message);
+        return NextResponse.json({ events: [] });
     }
 }

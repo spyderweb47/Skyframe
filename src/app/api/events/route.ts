@@ -17,6 +17,12 @@ export async function GET(request: Request) {
         const west = parseFloat(searchParams.get("west") || "-180");
         const yearRange = parseInt(searchParams.get("yearRange") || "50");
         const filter = searchParams.get("filter") || "all";
+        const zoom = parseFloat(searchParams.get("zoom") || "3");
+
+        // Zoom-adaptive limit: fewer events at global view, more when zoomed in
+        const takeLimit = Math.round(
+            Math.min(500, Math.max(100, 100 + (zoom - 3) * (400 / 7)))
+        );
 
         const session = await getServerSession(authOptions);
         const userId = (session?.user as { id?: string })?.id;
@@ -57,7 +63,7 @@ export async function GET(request: Request) {
                 },
             },
             orderBy: { year: "asc" },
-            take: 200,
+            take: takeLimit,
         });
 
         // If lat/lng provided, filter by radius
