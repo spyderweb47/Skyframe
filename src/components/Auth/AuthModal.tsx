@@ -66,7 +66,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                         {mode === "login" ? "Welcome back" : "Create account"}
                     </h2>
                     <p className="text-sm text-gray-400 mt-1.5">
-                        {mode === "login" ? "Sign in to explore & contribute" : "Join ChronoMap to add events"}
+                        {mode === "login" ? "Sign in to explore & contribute" : "Join SkyFrame to add events"}
                     </p>
                 </div>
 

@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "ChronoMap — Explore History Through Time & Space",
+  title: "SkyFrame — Explore History Through Time & Space",
   description:
     "An interactive world map that lets you explore historical events by location and time period. Add your own events and build a personal memory map.",
 };

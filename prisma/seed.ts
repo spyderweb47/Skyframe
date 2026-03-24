@@ -4,16 +4,16 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 async function main() {
-    console.log("🌍 Seeding ChronoMap database...");
+    console.log("🌍 Seeding SkyFrame database...");
 
     // Create a system user for seeded events
-    const hashedPassword = await bcrypt.hash("chronomap2024", 12);
+    const hashedPassword = await bcrypt.hash("skyframe2026", 12);
     const systemUser = await prisma.user.upsert({
-        where: { email: "historian@chronomap.app" },
+        where: { email: "historian@skyframe.app" },
         update: {},
         create: {
-            email: "historian@chronomap.app",
-            name: "ChronoMap Historian",
+            email: "historian@skyframe.app",
+            name: "SkyFrame Historian",
             password: hashedPassword,
         },
     });

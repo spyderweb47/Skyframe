@@ -83,14 +83,25 @@ export default function EventPanel({
                         </div>
 
                         {event.source && (
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-col gap-1.5 pt-1">
                                 <span className="text-xs text-gray-500 font-medium">Source</span>
-                                <span className="text-sm text-gray-400">{event.source}</span>
+                                {event.isWikipedia ? (
+                                    <a
+                                        href={event.source}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[13px] text-[#2383e2] hover:text-[#1d6bba] transition-colors break-words font-medium truncate"
+                                    >
+                                        {event.source}
+                                    </a>
+                                ) : (
+                                    <span className="text-[13px] text-gray-400 break-words">{event.source}</span>
+                                )}
                             </div>
                         )}
 
-                        {event.user && (
-                            <div className="flex items-center justify-between">
+                        {!event.isWikipedia && event.user && (
+                            <div className="flex items-center justify-between pt-1">
                                 <span className="text-xs text-gray-500 font-medium">Author</span>
                                 <span className="text-sm text-gray-400">{event.user.name}</span>
                             </div>

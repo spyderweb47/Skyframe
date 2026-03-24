@@ -23,7 +23,7 @@ export default function Header({ onAddEvent, onAuthClick }: HeaderProps) {
                     </svg>
                     <div>
                         <span className="text-sm font-bold text-[#ededed] block leading-tight">
-                            ChronoMap
+                            SkyFrame
                         </span>
                         <span className="text-[10px] text-gray-400 font-medium">
                             Temporal Explorer
