@@ -1,0 +1,277 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+html,
+body {
+  height: 100%;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #06060c;
+  color: #ededed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ══════════════════════════════════════
+   MAPBOX GL STYLING
+   ══════════════════════════════════════ */
+
+.mapboxgl-canvas {
+  filter: sepia(100%) hue-rotate(190deg) saturate(350%) brightness(0.6) contrast(1.1);
+  transition: filter 0.5s ease;
+}
+
+.mapboxgl-popup {
+  z-index: 1000;
+}
+
+.mapboxgl-popup-content {
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.mapboxgl-popup-tip {
+  border-top-color: #2f2f2f !important;
+  border-bottom-color: transparent !important;
+}
+
+/* ── Markers ── */
+
+.marker-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 2px 8px rgba(124, 106, 255, 0.35));
+  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.marker-pin:hover {
+  transform: scale(1.25);
+  filter: drop-shadow(0 4px 16px rgba(124, 106, 255, 0.55));
+}
+
+.marker-public {
+  color: #7c6aff;
+}
+
+.marker-private {
+  color: #e8b931;
+}
+
+/* ══════════════════════════════════════
+   NOTION-STYLE UI
+   ══════════════════════════════════════ */
+
+.notion-input {
+  background: #202020;
+  border: 1px solid #373737;
+  color: #ededed;
+  transition: all 0.15s ease;
+}
+
+.notion-input:focus {
+  border-color: #2383e2;
+  box-shadow: 0 0 0 2px rgba(35, 131, 226, 0.2);
+  outline: none;
+}
+
+.notion-input::placeholder {
+  color: #71717a;
+}
+
+/* ══════════════════════════════════════
+   RANGE TIME SLIDER (ARKHAM STYLE)
+   ══════════════════════════════════════ */
+
+.ts-root {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: #0f172a;
+  border-top: 1px solid #1e293b;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.ts-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #0f172a;
+}
+
+.ts-range-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ts-range-text {
+  font-size: 12px;
+  font-family: "JetBrains Mono", monospace;
+  color: #e2e8f0;
+}
+
+.ts-range-sep {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.ts-range-span {
+  font-size: 11px;
+  color: #64748b;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.ts-track-container {
+  padding: 0 16px 16px 16px;
+  background: #0f172a;
+}
+
+.ts-track {
+  position: relative;
+  height: 48px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.ts-baseline {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  border-bottom: 1px dashed #475569;
+}
+
+.ts-activity {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  background: #3b82f6;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.ts-activity-active {
+  opacity: 1 !important;
+  background: #60a5fa !important;
+}
+
+.ts-range-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(59, 130, 246, 0.15);
+  border-top: 2px solid #3b82f6;
+  border-bottom: 2px solid #3b82f6;
+  cursor: grab;
+}
+
+.ts-range-fill:active {
+  cursor: grabbing;
+}
+
+.ts-labels {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  height: 16px;
+  pointer-events: none;
+}
+
+.ts-label {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: #94a3b8;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.ts-handle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 24px;
+  background: #ffffff;
+  border-radius: 4px;
+  cursor: ew-resize;
+  z-index: 5;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  transition: background-color 0.15s;
+}
+
+.ts-handle:hover {
+  background: #f1f5f9;
+}
+
+.ts-handle:active {
+  background: #e2e8f0;
+}
+
+.ts-presets {
+  display: none;
+}
+
+/* ══════════════════════════════════════
+   ANIMATIONS
+   ══════════════════════════════════════ */
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.93);
+    opacity: 0;
+  }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1a1a30;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #383850;
+}
